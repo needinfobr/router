@@ -16,13 +16,13 @@ Needinfo é um conjunto de pequenos e otimizados componentes PHP para tarefas co
 Router is available via Composer:
 
 ```bash
-"needinfo/router": "1.0.*"
+"needinfobr/router": "1.0.*"
 ```
 
 or run
 
 ```bash
-composer require needinfo/router
+composer require needinfobr/router
 ```
 
 ## Documentation
