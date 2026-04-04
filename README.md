@@ -124,7 +124,7 @@ $router->dispatch();
 ```
 
 ## Contributing
-Please see [CONTRIBUTING](https://github.com/needinfo/router/blob/master/CONTRIBUTING.md) for details.
+Please see [CONTRIBUTING](https://github.com/needinfobr/router/blob/master/CONTRIBUTING.md) for details.
 
 ## Support
 ###### Security: If you discover any security related issues, please email [contato@needinfo.com.br](mailto:contato@needinfo.com.br) instead of using the issue tracker.

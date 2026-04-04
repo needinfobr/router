@@ -1,6 +1,6 @@
 {
     "name": "needinfo/router",
-    "description": "Um roteador PHP simples, seguro e robusto.",
+    "description": "Um roteador PHP simples, seguro e robusto criado para agilidade na abstração MVC através de verbos RESTful.",
     "type": "library",
     "keywords": [
         "router",
@@ -9,7 +9,7 @@
         "needinfo",
         "php"
     ],
-    "homepage": "https://github.com/needinfo/router",
+    "homepage": "https://github.com/needinfobr/router",
     "license": "MIT",
     "authors": [
         {
