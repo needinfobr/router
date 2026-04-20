@@ -2,14 +2,9 @@
 
 namespace Needinfo\Router;
 
-use Closure;
-use Exception;
-
 class Dispatch
 {
     private string $projectUrl;
-    private string $requestMethod;
-    private string $requestUrl;
     private array $routes;
 
     /**
@@ -19,92 +14,93 @@ class Dispatch
     public function __construct(string $projectUrl, array $routes)
     {
         $this->projectUrl = rtrim($projectUrl, '/');
-        $this->requestMethod = $_SERVER['REQUEST_METHOD'] ?? 'GET';
         $this->routes = $routes;
-        
-        // Remove project base url from request url
-        $path = $_SERVER['REQUEST_URI'] ?? '/';
-        $path = filter_var($path, FILTER_SANITIZE_URL);
+    }
+
+    /**
+     * @param string $method
+     * @param string $uri
+     * @return RouteMatch
+     */
+    public function match(string $method, string $uri): RouteMatch
+    {
+        $method = strtoupper($method);
         
         $basePath = parse_url($this->projectUrl, PHP_URL_PATH) ?? '';
+        
+        $path = filter_var($uri, FILTER_SANITIZE_URL);
         
         if ($basePath && str_starts_with($path, $basePath)) {
             $path = substr($path, strlen($basePath));
         }
         
-        // Remove query strings
         $position = strpos($path, '?');
         if ($position !== false) {
             $path = substr($path, 0, $position);
         }
         
-        $this->requestUrl = '/' . trim($path, '/');
+        $path = '/' . trim($path, '/');
+
+        // Look for match in current method
+        $match = $this->matchInMethod($method, $path);
+        
+        if ($match instanceof RouteMatch) {
+            return $match;
+        }
+
+        // Verify if route exists in other methods (405 Method Not Allowed)
+        $allowedMethods = [];
+        foreach (array_keys($this->routes) as $iterMethod) {
+            if ($iterMethod !== $method && $this->matchInMethod($iterMethod, $path, true)) {
+                $allowedMethods[] = $iterMethod;
+            }
+        }
+
+        if (!empty($allowedMethods)) {
+            return new RouteMatch(null, [], 405, $allowedMethods);
+        }
+
+        return new RouteMatch(null, [], 404);
     }
 
     /**
-     * @return bool
-     * @throws Exception
+     * @param string $method
+     * @param string $path
+     * @param bool $checkOnly
+     * @return RouteMatch|bool
      */
-    public function run(): bool
+    private function matchInMethod(string $method, string $path, bool $checkOnly = false): RouteMatch|bool
     {
-        if (empty($this->routes[$this->requestMethod])) {
-            throw new Exception("Method not allowed", 405);
+        if (empty($this->routes[$method])) {
+            return false;
         }
 
-        foreach ($this->routes[$this->requestMethod] as $route => $handler) {
-            $pattern = preg_replace('/\{([a-zA-Z0-9_]+)\}/', '(?P<$1>[a-zA-Z0-9_\-]+)', $route);
+        /** @var Route $route */
+        foreach ($this->routes[$method] as $routePath => $route) {
+            $pattern = preg_replace_callback('/\{([a-zA-Z0-9_]+)(?::([^\}]+))?\}/', function ($m) {
+                $name = $m[1];
+                $constraint = $m[2] ?? '[^/]+';
+                return "(?P<{$name}>{$constraint})";
+            }, $routePath);
+
             $pattern = str_replace('/', '\/', $pattern);
             
-            if (preg_match('/^' . $pattern . '$/', $this->requestUrl, $matches)) {
+            if (preg_match('/^' . $pattern . '$/', $path, $matches)) {
+                if ($checkOnly) {
+                    return true;
+                }
+                
                 $params = [];
                 foreach ($matches as $key => $value) {
                     if (is_string($key)) {
-                        $params[$key] = $value;
+                        $params[$key] = rawurldecode($value);
                     }
                 }
                 
-                return $this->execute($handler, $params);
+                return new RouteMatch($route, $params, 0);
             }
         }
         
-        throw new Exception("Route not found", 404);
-    }
-
-    /**
-     * @param mixed $handler
-     * @param array $params
-     * @return bool
-     * @throws Exception
-     */
-    private function execute(mixed $handler, array $params): bool
-    {
-        if ($handler instanceof Closure) {
-            call_user_func_array($handler, [$params]);
-            return true;
-        }
-
-        if (is_string($handler)) {
-            $segments = explode(':', $handler);
-            if (count($segments) !== 2) {
-                throw new Exception("Invalid handler format. Expected Class:method");
-            }
-            
-            list($controllerName, $method) = $segments;
-            
-            if (!class_exists($controllerName)) {
-                throw new Exception("Controller {$controllerName} not found");
-            }
-            
-            $controller = new $controllerName();
-            
-            if (!method_exists($controller, $method)) {
-                throw new Exception("Method {$method} not found in {$controllerName}");
-            }
-            
-            call_user_func_array([$controller, $method], [$params]);
-            return true;
-        }
-        
-        throw new Exception("Invalid handler");
+        return false;
     }
 }

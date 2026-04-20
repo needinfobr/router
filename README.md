@@ -7,30 +7,25 @@ Pequeno, simples e descomplicado. O router é um componentes de rotas PHP com ab
 Needinfo é um conjunto de pequenos e otimizados componentes PHP para tarefas comuns. Com eles você executa tarefas rotineiras com poucas linhas, escrevendo menos e fazendo muito mais.
 
 - Router class with all RESTful verbs (Classe router com todos os verbos RESTful)
+- **[NEW no v2.0]** Regex Constraints nos parâmetros de URL
+- **[NEW no v2.0]** Retorno `405 Method Not Allowed` estruturado (+ Allow Headers)
+- **[NEW no v2.0]** Encadeamento de Rotas (`->name()`, `->middleware()`, `->with()`)
+- **[NEW no v2.0]** Matcher Desacoplado para uso focado em Frameworks que precisam ingerir uma Request customizada (Injeção de PSR-11 support).
 - Optimized dispatch with total decision control (Despacho otimizado com controle total de decisões)
-- It's very simple to create routes for your application or API (É muito simples criar rotas para sua aplicação ou API)
-- Trigger and data carrier for the controller (Gatilho e transportador de dados para o controlador)
 - Composer ready and PSR-4 compliant (Pronto para o composer e compatível com PSR-4)
 
 ## Installation
 Router is available via Composer:
 
 ```bash
-"needinfobr/router": "1.0.*"
-```
-
-or run
-
-```bash
-composer require needinfobr/router
+composer require needinfobr/router "^2.0"
 ```
 
 ## Documentation
 ###### For details on how to use the router, see the sample folder with details in the component directory. To use the router you need to redirect your route routing navigation (index.php) where all traffic must be handled. The example below shows how:
-Para mais detalhes sobre como usar o router, veja a pasta de exemplo com detalhes no diretório do componente. Para usar o router é preciso redirecionar sua navegação para o arquivo raiz de rotas (index.php) onde todo o tráfego deve ser tratado. O exemplo abaixo mostra como:
+Para mais detalhes sobre como usar o router, veja a pasta de exemplo com detalhes no diretório do componente. Para usar o router é preciso redirecionar sua navegação para o arquivo raiz de rotas (index.php) onde todo o tráfego deve ser tratado.
 
-#### Apache
-
+#### Apache (`.htaccess`)
 ```apache
 RewriteEngine On
 #Options All -Indexes
@@ -42,7 +37,6 @@ RewriteRule ^(.*)$ index.php?route=/$1 [L,QSA]
 ```
 
 #### Nginx
-
 ```nginx
 location / {
     if ($script_filename !~ "-f"){
@@ -51,7 +45,7 @@ location / {
 }
 ```
 
-##### Routes
+### 1. Basic usage and MVC Pattern
 
 ```php
 <?php
@@ -61,30 +55,28 @@ use Needinfo\Router\Router;
 $router = new Router("https://www.youdomain.com");
 
 /**
- * routes
  * The controller must be in the namespace App\Controllers
- * this produces routes for route, route/$id, etc.
  */
 $router->namespace("App\\Controllers");
 
 $router->get("/", "Web:home");
+// Default parameters catch anything [^/]+
 $router->post("/route/{id}", "Web:method");
-$router->put("/route/{id}/profile", "Web:method");
-$router->patch("/route/{id}/profile/{photo}", "Web:method");
-$router->delete("/route/{id}", "Web:method");
+
+// You can use Regex Constraints (v2.0+) 
+$router->get("/users/{id:\d+}", "Web:user"); // id only matches Numbers!
+$router->get("/posts/{slug:[a-z\-]+}", "Web:post"); // slug only matches lowercase and hyphens!
 
 /**
- * group by routes and namespace
- * this produces routes for /admin/route and /admin/route/$id
+ * Group by routes and namespace
  * The controller must be in the namespace App\Controllers\Admin
  */
 $router->group("admin")->namespace("App\\Controllers\\Admin");
 
 $router->get("/route", "Dashboard:home");
-$router->post("/route/{id}", "Dashboard:method");
 
 /**
- * This method executes the routes
+ * This method executes the routes directly based on $_SERVER
  */
 $router->dispatch();
 
@@ -92,43 +84,65 @@ $router->dispatch();
  * Redirect all errors
  */
 if ($router->error()) {
-    $router->redirect("/error/{$router->error()}");
+    $router->redirect("/error/{$router->error()}"); // e.g., 404 or 405
 }
 ```
 
-##### Callable
+### 2. Route Decorators (v2.0+)
+Agora toda chamada de rota retorna o objeto `Needinfo\Router\Route`, que permite você injetar dados avançados usados pelo seu sistema MVC:
 
 ```php
-<?php
+$route = $router->get("/dashboard", "Web:dashboard")
+                ->name("admin.dashboard")
+                ->middleware("RequireAuth")
+                ->with(["role" => "admin"]);
+```
 
-use Needinfo\Router\Router;
+### 3. Framework Integrations e Dependency Injection (v2.0+)
 
-$router = new Router("https://www.youdomain.com");
+#### Injeção Container Simples
+Se seu index for impulsionado por um container, basta setá-lo no Roteador antes do dispatcher. Se houver métodos como `has` e `get` (PSR-11), o Router fará `->get('App\Controllers\Web')` garantindo autowiring!
 
-/**
- * GET httpMethod
- */
-$router->get("/callable", function ($data) {
-    echo "<h1>GET :: Callable</h1>";
-    echo "<pre>", print_r($data, true), "</pre>";
-});
-
-/**
- * POST parameterized
- */
-$router->post("/callable/{id}", function ($data) {
-    echo "<h1>POST :: ID: {$data['id']}</h1>";
-});
-
+```php
+$router->setContainer($myContainer);
 $router->dispatch();
+```
+
+#### Passagem de Contexto (Context Injection)
+Muitos frameworks enviam o `Request` para o Controller ou Callable. Agora você pode passar na chamada de `$router->dispatch($context)` e recuperar lá dentro:
+
+```php
+$router->get("/api/user", function($request, $params) {
+    echo $request->getBody(); // $request é o contexto customizado repassado
+});
+
+$router->dispatch($request);
+```
+
+#### Matcher Desacoplado 
+Não quer rodar a lógica `new Controller` direto do core do Router? Quer varrer e ver se algo casou apenas? O comando `match()` responde uma Query estruturada!
+
+```php
+$match = $router->match('POST', '/api/users');
+
+if ($match->isSuccess()) {
+    $matchedRoute = $match->getRoute();
+    $params = $match->getParams();
+    
+    // Voce assume o controle da execução:
+    // (new $matchedRoute->getHandler())($params);
+} elseif ($match->getError() === 405) {
+    echo "Metodos aceitos: " . implode(', ', $match->getAllowedMethods());
+} else {
+    echo "404 Not Found";
+}
 ```
 
 ## Contributing
 Please see [CONTRIBUTING](https://github.com/needinfobr/router/blob/master/CONTRIBUTING.md) for details.
 
 ## Support
-###### Security: If you discover any security related issues, please email [contato@needinfo.com.br](mailto:contato@needinfo.com.br) instead of using the issue tracker.
-Se você descobrir algum problema relacionado à segurança, envie um e-mail para [contato@needinfo.com.br](mailto:contato@needinfo.com.br) em vez de usar o rastreador de problemas.
+Security: If you discover any security related issues, please email [contato@needinfo.com.br](mailto:contato@needinfo.com.br) instead of using the issue tracker.
 
 ## License
 The MIT License (MIT).
